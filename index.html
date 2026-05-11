@@ -1,0 +1,2852 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0D1E3D" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Costa CW" />
+  <title>Costa Carwash</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,900&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    * { -webkit-tap-highlight-color: transparent; box-sizing: border-box; }
+    body { margin:0; padding:0; background:#0D1E3D; overscroll-behavior:none; }
+    input, select, textarea, button { font-family:"DM Sans",sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+  <script>
+    window.onerror = function(msg, src, line) {
+      document.getElementById("root").innerHTML =
+        '<div style="color:white;padding:30px;font-size:14px"><b>Error:</b> ' + msg + '<br>Linea: ' + line + '</div>';
+      return true;
+    };
+  </script>
+
+  <script>
+const {
+  useState,
+  useMemo
+} = React;
+
+// Simple custom charts - no external dependency needed
+function SimpleBarChart({
+  data,
+  keys,
+  colors
+}) {
+  const max = Math.max(...data.flatMap(d => keys.map(k => d[k] || 0)), 1);
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "flex-end",
+      gap: 6,
+      height: 180,
+      padding: "0 4px"
+    }
+  }, data.map((d, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      flex: 1,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      gap: 2
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: "100%",
+      display: "flex",
+      gap: 2,
+      alignItems: "flex-end",
+      height: 150
+    }
+  }, keys.map((k, ki) => /*#__PURE__*/React.createElement("div", {
+    key: k,
+    style: {
+      flex: 1,
+      borderRadius: "4px 4px 0 0",
+      background: colors[ki],
+      height: Math.max(4, (d[k] || 0) / max * 150)
+    }
+  }))), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 10,
+      color: "#6B8CAE",
+      textAlign: "center"
+    }
+  }, d.dia))));
+}
+function SimpleLineChart({
+  data,
+  dataKey,
+  color
+}) {
+  const vals = data.map(d => d[dataKey] || 0);
+  const max = Math.max(...vals, 1);
+  const min = Math.min(...vals, 0);
+  const range = max - min || 1;
+  const h = 140,
+    w = 100;
+  const pts = vals.map((v, i) => {
+    const x = i / (vals.length - 1) * w;
+    const y = h - (v - min) / range * h;
+    return `${x},${y}`;
+  }).join(" ");
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "0 4px"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: `0 0 100 ${h}`,
+    style: {
+      width: "100%",
+      height: 160
+    },
+    preserveAspectRatio: "none"
+  }, /*#__PURE__*/React.createElement("polyline", {
+    points: pts,
+    fill: "none",
+    stroke: color,
+    strokeWidth: "2",
+    strokeLinejoin: "round"
+  }), vals.map((v, i) => {
+    const x = i / (vals.length - 1) * w;
+    const y = h - (v - min) / range * h;
+    return /*#__PURE__*/React.createElement("circle", {
+      key: i,
+      cx: x,
+      cy: y,
+      r: "2.5",
+      fill: color
+    });
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between"
+    }
+  }, data.map((d, i) => /*#__PURE__*/React.createElement("span", {
+    key: i,
+    style: {
+      fontSize: 10,
+      color: "#6B8CAE"
+    }
+  }, d.dia))));
+}
+function SimplePieChart({
+  data,
+  colors
+}) {
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  let angle = -90;
+  const cx = 50,
+    cy = 50,
+    r = 38,
+    ri = 22;
+  const slices = data.map((d, i) => {
+    const pct = d.value / total;
+    const a1 = angle,
+      a2 = angle + pct * 360;
+    angle = a2;
+    const toRad = deg => deg * Math.PI / 180;
+    const x1o = cx + r * Math.cos(toRad(a1)),
+      y1o = cy + r * Math.sin(toRad(a1));
+    const x2o = cx + r * Math.cos(toRad(a2)),
+      y2o = cy + r * Math.sin(toRad(a2));
+    const x1i = cx + ri * Math.cos(toRad(a1)),
+      y1i = cy + ri * Math.sin(toRad(a1));
+    const x2i = cx + ri * Math.cos(toRad(a2)),
+      y2i = cy + ri * Math.sin(toRad(a2));
+    const large = pct > 0.5 ? 1 : 0;
+    return /*#__PURE__*/React.createElement("path", {
+      key: i,
+      d: `M${x1o},${y1o} A${r},${r} 0 ${large},1 ${x2o},${y2o} L${x2i},${y2i} A${ri},${ri} 0 ${large},0 ${x1i},${y1i} Z`,
+      fill: colors[i % colors.length]
+    });
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 16,
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("svg", {
+    viewBox: "0 0 100 100",
+    style: {
+      width: 120,
+      height: 120,
+      flexShrink: 0
+    }
+  }, slices), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 6
+    }
+  }, data.map((d, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 6
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 10,
+      height: 10,
+      borderRadius: 2,
+      background: colors[i % colors.length],
+      flexShrink: 0
+    }
+  }), /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 12,
+      color: "#6B8CAE"
+    }
+  }, d.name, ": ", d.value)))));
+}
+const initialServices = [{
+  id: 1,
+  name: "Lavado exterior",
+  price: 7000,
+  duration: "25 min"
+}, {
+  id: 2,
+  name: "Lavado completo",
+  price: 12000,
+  duration: "45 min"
+}, {
+  id: 3,
+  name: "Aspirado interior",
+  price: 5000,
+  duration: "20 min"
+}, {
+  id: 4,
+  name: "Lavado premium",
+  price: 18000,
+  duration: "60 min"
+}];
+const todayISO = new Date().toISOString().slice(0, 10);
+const daysAgo = d => {
+  const date = new Date();
+  date.setDate(date.getDate() - d);
+  return date.toISOString().slice(0, 10);
+};
+const initialOrders = [{
+  id: 1001,
+  customer: "Cliente mostrador",
+  phone: "",
+  plate: "ABCD-12",
+  vehicle: "Auto",
+  serviceId: 2,
+  status: "En proceso",
+  payment: "Pendiente",
+  worker: "Operario 1",
+  date: todayISO,
+  time: "09:30",
+  note: "Tapiz con polvo"
+}, {
+  id: 1002,
+  customer: "Flota Empresa Norte",
+  phone: "+56 9 1111 2222",
+  plate: "KJLP-88",
+  vehicle: "Camioneta",
+  serviceId: 4,
+  status: "Terminado",
+  payment: "Pagado",
+  worker: "Operario 2",
+  date: todayISO,
+  time: "10:15",
+  note: "Cliente frecuente"
+}, {
+  id: 1003,
+  customer: "Cliente semanal",
+  phone: "",
+  plate: "HHJJ-44",
+  vehicle: "SUV",
+  serviceId: 1,
+  status: "Terminado",
+  payment: "Pagado",
+  worker: "Operario 1",
+  date: daysAgo(1),
+  time: "12:10",
+  note: ""
+}, {
+  id: 1004,
+  customer: "Cliente mostrador",
+  phone: "",
+  plate: "PLRT-90",
+  vehicle: "Auto",
+  serviceId: 2,
+  status: "Terminado",
+  payment: "Pagado",
+  worker: "Operario 2",
+  date: daysAgo(2),
+  time: "16:20",
+  note: ""
+}, {
+  id: 1005,
+  customer: "Flota Empresa Norte",
+  phone: "",
+  plate: "ZKCD-21",
+  vehicle: "Camioneta",
+  serviceId: 4,
+  status: "Terminado",
+  payment: "Pagado",
+  worker: "Operario 1",
+  date: daysAgo(3),
+  time: "11:00",
+  note: ""
+}];
+const initialExpenses = [{
+  id: 1,
+  concept: "Shampoo vehicular",
+  amount: 18500,
+  date: todayISO
+}, {
+  id: 2,
+  concept: "Paños microfibra",
+  amount: 9500,
+  date: todayISO
+}, {
+  id: 3,
+  concept: "Cera rápida",
+  amount: 15000,
+  date: daysAgo(1)
+}, {
+  id: 4,
+  concept: "Bolsas basura",
+  amount: 6000,
+  date: daysAgo(2)
+}];
+const initialWorkers = [{
+  id: 1,
+  name: "Operario 1",
+  role: "Lavador",
+  startDate: "2025-01-01",
+  daysWorked: 5,
+  dailySalary: 25000,
+  extraExpenses: 10000,
+  notes: "Movilización"
+}, {
+  id: 2,
+  name: "Operario 2",
+  role: "Aspirado y terminaciones",
+  startDate: "2025-01-01",
+  daysWorked: 4,
+  dailySalary: 25000,
+  extraExpenses: 5000,
+  notes: "Colación"
+}];
+
+// Brand colors from logo/flyer: deep navy + ocean blue + sunset orange
+const B = {
+  navy: "#0D1E3D",
+  navyM: "#1A3460",
+  ocean: "#1565C0",
+  sky: "#2196F3",
+  skyL: "#64B5F6",
+  water: "#E3F2FD",
+  waterM: "#BBDEFB",
+  sunset: "#F4651A",
+  sunsetL: "#FFE0CC",
+  white: "#FFFFFF",
+  offW: "#F4F9FF",
+  border: "#C5DCF0",
+  muted: "#6B8CAE",
+  muted2: "#9DB5CC",
+  ink: "#0A1628"
+};
+const chartColors = [B.ocean, B.sunset, B.skyL, B.navyM, "#42A5F5"];
+function money(v) {
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "CLP",
+    maximumFractionDigits: 0
+  }).format(v || 0);
+}
+function Badge({
+  children,
+  tone = "default"
+}) {
+  const styles = {
+    default: {
+      background: B.water,
+      color: B.navyM
+    },
+    green: {
+      background: "#ECFDF5",
+      color: "#065F46",
+      border: "1px solid #A7F3D0"
+    },
+    blue: {
+      background: "#EFF6FF",
+      color: "#1E40AF",
+      border: "1px solid #BFDBFE"
+    },
+    amber: {
+      background: "#FFFBEB",
+      color: "#92400E",
+      border: "1px solid #FDE68A"
+    },
+    red: {
+      background: "#FEF2F2",
+      color: "#991B1B",
+      border: "1px solid #FECACA"
+    },
+    dark: {
+      background: B.navy,
+      color: "white"
+    },
+    purple: {
+      background: "#F5F3FF",
+      color: "#5B21B6",
+      border: "1px solid #DDD6FE"
+    }
+  };
+  return /*#__PURE__*/React.createElement("span", {
+    style: {
+      ...styles[tone],
+      borderRadius: 999,
+      padding: "2px 10px",
+      fontSize: 11,
+      fontWeight: 700,
+      letterSpacing: "0.03em",
+      display: "inline-flex",
+      alignItems: "center"
+    }
+  }, children);
+}
+function StatCard({
+  title,
+  value,
+  subtitle,
+  accent = false
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: accent ? B.navy : B.white,
+      border: `1px solid ${accent ? "transparent" : B.border}`,
+      borderRadius: 20,
+      padding: 16,
+      position: "relative",
+      overflow: "hidden"
+    }
+  }, accent && /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      width: 60,
+      height: 60,
+      borderRadius: "50%",
+      background: B.sky,
+      opacity: 0.15,
+      transform: "translate(30%,-30%)"
+    }
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.15em",
+      color: accent ? B.skyL : B.muted,
+      marginBottom: 4
+    }
+  }, title), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 30,
+      fontWeight: 900,
+      lineHeight: 1,
+      color: accent ? B.white : B.navy,
+      fontFamily: "'Bebas Neue', sans-serif",
+      letterSpacing: "0.05em"
+    }
+  }, value), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: accent ? B.skyL : B.muted2,
+      marginTop: 2
+    }
+  }, subtitle));
+}
+function SectionHeader({
+  label,
+  title,
+  dark = true
+}) {
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: dark ? `linear-gradient(135deg, ${B.navy}, ${B.navyM})` : B.white,
+      padding: "16px 20px 14px"
+    }
+  }, label && /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.25em",
+      color: dark ? B.skyL : B.muted,
+      marginBottom: 2
+    }
+  }, label), /*#__PURE__*/React.createElement("h2", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 30,
+      letterSpacing: "0.06em",
+      lineHeight: 1,
+      color: dark ? "white" : B.navy,
+      margin: 0
+    }
+  }, title));
+}
+
+// ─── LOGIN ───────────────────────────────────────────────────────
+const PASSWORDS = {
+  admin: "0000",
+  worker: "1234"
+};
+function LoginScreen({
+  setRole
+}) {
+  const [selected, setSelected] = useState(null); // "admin" | "worker"
+  const [pin, setPin] = useState("");
+  const [error, setError] = useState(false);
+  const roles = [{
+    role: "admin",
+    icon: "👑",
+    label: "Administrador",
+    sub: "Dashboard · Caja · Gastos · Personal",
+    bg: "white",
+    text: B.navy,
+    sub2: B.muted
+  }, {
+    role: "worker",
+    icon: "🧽",
+    label: "Trabajador",
+    sub: "Lavados · Estados · Fotos",
+    bg: "rgba(255,255,255,0.1)",
+    text: "white",
+    sub2: "rgba(255,255,255,0.4)"
+  }];
+  const handleDigit = d => {
+    if (pin.length >= 4) return;
+    const next = pin + d;
+    setPin(next);
+    setError(false);
+    if (next.length === 4) {
+      setTimeout(() => {
+        if (next === PASSWORDS[selected]) {
+          setRole(selected);
+        } else {
+          setError(true);
+          setPin("");
+        }
+      }, 200);
+    }
+  };
+  const handleBack = () => {
+    setPin(p => p.slice(0, -1));
+    setError(false);
+  };
+  const handleCancel = () => {
+    setSelected(null);
+    setPin("");
+    setError(false);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      minHeight: "100vh",
+      background: `linear-gradient(160deg, ${B.navy} 0%, ${B.navyM} 45%, ${B.ocean} 100%)`,
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      justifyContent: "center",
+      padding: "32px 20px",
+      position: "relative",
+      overflow: "hidden"
+    }
+  }, [40, 24, 56, 18, 32, 44, 20, 38].map((size, i) => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      position: "absolute",
+      borderRadius: "50%",
+      background: "white",
+      opacity: 0.06,
+      width: size,
+      height: size,
+      top: `${8 + i * 11}%`,
+      left: `${4 + i * 13}%`,
+      animation: `floatB ${3 + i * 0.5}s ease-in-out infinite alternate`
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      position: "relative",
+      width: "100%",
+      maxWidth: 360
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      alignItems: "center",
+      marginBottom: 28
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 88,
+      height: 88,
+      borderRadius: "50%",
+      background: "white",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 38,
+      marginBottom: 14,
+      boxShadow: "0 8px 32px rgba(0,0,0,0.3)"
+    }
+  }, "\uD83D\uDE98"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 44,
+      color: "white",
+      letterSpacing: "0.12em",
+      lineHeight: 1,
+      margin: 0
+    }
+  }, "COSTA"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginTop: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      width: 24,
+      background: B.skyL
+    }
+  }), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.3em",
+      color: B.skyL,
+      margin: 0
+    }
+  }, "Car Wash"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 1,
+      width: 24,
+      background: B.skyL
+    }
+  }))), !selected ?
+  /*#__PURE__*/
+  /* ── Role picker ── */
+  React.createElement("div", {
+    style: {
+      background: "rgba(255,255,255,0.07)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 28,
+      padding: 20
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      textAlign: "center",
+      fontSize: 13,
+      color: "rgba(255,255,255,0.45)",
+      marginBottom: 16,
+      fontWeight: 500
+    }
+  }, "Sistema de Control \xB7 Elige tu perfil"), roles.map(r => /*#__PURE__*/React.createElement("button", {
+    key: r.role,
+    onClick: () => setSelected(r.role),
+    style: {
+      width: "100%",
+      borderRadius: 20,
+      padding: 16,
+      textAlign: "left",
+      border: "1px solid rgba(255,255,255,0.15)",
+      background: r.bg,
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 44,
+      height: 44,
+      borderRadius: 14,
+      background: r.bg === "white" ? B.water : "rgba(255,255,255,0.12)",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 22
+    }
+  }, r.icon), /*#__PURE__*/React.createElement("div", {
+    style: {
+      flex: 1
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontWeight: 700,
+      fontSize: 15,
+      color: r.text,
+      margin: 0
+    }
+  }, r.label), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: r.sub2,
+      margin: 0
+    }
+  }, r.sub)), /*#__PURE__*/React.createElement("span", {
+    style: {
+      color: r.bg === "white" ? B.ocean : "rgba(255,255,255,0.3)",
+      fontSize: 20
+    }
+  }, "\u203A")))) :
+  /*#__PURE__*/
+  /* ── PIN screen ── */
+  React.createElement("div", {
+    style: {
+      background: "rgba(255,255,255,0.07)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 28,
+      padding: 24
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: handleCancel,
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      borderRadius: 10,
+      padding: "4px 10px",
+      fontSize: 12,
+      color: "rgba(255,255,255,0.6)",
+      cursor: "pointer"
+    }
+  }, "\u2190 Volver"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      fontWeight: 700,
+      color: "white",
+      margin: 0
+    }
+  }, roles.find(r => r.role === selected)?.icon, " ", roles.find(r => r.role === selected)?.label)), /*#__PURE__*/React.createElement("p", {
+    style: {
+      textAlign: "center",
+      fontSize: 13,
+      color: "rgba(255,255,255,0.5)",
+      marginBottom: 20
+    }
+  }, "Ingresa tu PIN de 4 d\xEDgitos"), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "center",
+      gap: 16,
+      marginBottom: 28
+    }
+  }, [0, 1, 2, 3].map(i => /*#__PURE__*/React.createElement("div", {
+    key: i,
+    style: {
+      width: 18,
+      height: 18,
+      borderRadius: "50%",
+      background: error ? "#EF4444" : i < pin.length ? "white" : "rgba(255,255,255,0.2)",
+      transition: "all 0.15s",
+      transform: error ? "scale(1.2)" : "scale(1)"
+    }
+  }))), error && /*#__PURE__*/React.createElement("p", {
+    style: {
+      textAlign: "center",
+      fontSize: 13,
+      color: "#FCA5A5",
+      marginBottom: 16,
+      fontWeight: 600
+    }
+  }, "PIN incorrecto. Intenta de nuevo."), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 10
+    }
+  }, [1, 2, 3, 4, 5, 6, 7, 8, 9].map(d => /*#__PURE__*/React.createElement("button", {
+    key: d,
+    onClick: () => handleDigit(String(d)),
+    style: {
+      borderRadius: 16,
+      padding: "18px 0",
+      fontSize: 22,
+      fontWeight: 700,
+      color: "white",
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      cursor: "pointer",
+      transition: "background 0.1s"
+    },
+    onMouseEnter: e => e.currentTarget.style.background = "rgba(255,255,255,0.2)",
+    onMouseLeave: e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"
+  }, d)), /*#__PURE__*/React.createElement("div", null), /*#__PURE__*/React.createElement("button", {
+    onClick: () => handleDigit("0"),
+    style: {
+      borderRadius: 16,
+      padding: "18px 0",
+      fontSize: 22,
+      fontWeight: 700,
+      color: "white",
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      cursor: "pointer"
+    },
+    onMouseEnter: e => e.currentTarget.style.background = "rgba(255,255,255,0.2)",
+    onMouseLeave: e => e.currentTarget.style.background = "rgba(255,255,255,0.1)"
+  }, "0"), /*#__PURE__*/React.createElement("button", {
+    onClick: handleBack,
+    style: {
+      borderRadius: 16,
+      padding: "18px 0",
+      fontSize: 20,
+      fontWeight: 700,
+      color: "rgba(255,255,255,0.7)",
+      background: "rgba(255,255,255,0.06)",
+      border: "1px solid rgba(255,255,255,0.1)",
+      cursor: "pointer"
+    }
+  }, "\u232B"))), /*#__PURE__*/React.createElement("p", {
+    style: {
+      textAlign: "center",
+      fontSize: 11,
+      color: "rgba(255,255,255,0.18)",
+      marginTop: 20
+    }
+  }, "Versi\xF3n prototipo \xB7 Datos locales en memoria")), /*#__PURE__*/React.createElement("style", null, `@keyframes floatB { from{transform:translateY(0)} to{transform:translateY(-14px)} }`));
+}
+
+// ─── ORDER FORM ───────────────────────────────────────────────────
+function OrderForm({
+  services,
+  orderForm,
+  setOrderForm,
+  addOrder,
+  mode = "admin"
+}) {
+  const handlePhoto = (field, file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => setOrderForm({
+      ...orderForm,
+      [field]: reader.result
+    });
+    reader.readAsDataURL(file);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Registro",
+    title: "Nuevo Lavado"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "20px 20px 4px"
+    },
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field col-span-2",
+    placeholder: "Nombre cliente",
+    value: orderForm.customer,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      customer: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field col-span-2",
+    placeholder: "Tel\xE9fono",
+    value: orderForm.phone,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      phone: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field plate-field",
+    placeholder: "PATENTE",
+    value: orderForm.plate,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      plate: e.target.value.toUpperCase()
+    })
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "field",
+    value: orderForm.vehicle,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      vehicle: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", null, "Auto"), /*#__PURE__*/React.createElement("option", null, "Camioneta"), /*#__PURE__*/React.createElement("option", null, "SUV"), /*#__PURE__*/React.createElement("option", null, "Cami\xF3n"), /*#__PURE__*/React.createElement("option", null, "Moto")), /*#__PURE__*/React.createElement("select", {
+    className: "field col-span-2",
+    value: orderForm.serviceId,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      serviceId: Number(e.target.value)
+    })
+  }, services.map(s => /*#__PURE__*/React.createElement("option", {
+    key: s.id,
+    value: s.id
+  }, s.name, " \u2014 ", money(s.price)))), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    placeholder: "Operario",
+    value: orderForm.worker,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      worker: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    type: "time",
+    value: orderForm.time,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      time: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("select", {
+    className: "field",
+    value: orderForm.status,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      status: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", null, "Pendiente"), /*#__PURE__*/React.createElement("option", null, "En proceso"), /*#__PURE__*/React.createElement("option", null, "Terminado"), mode === "admin" && /*#__PURE__*/React.createElement("option", null, "Cancelado")), mode === "admin" ? /*#__PURE__*/React.createElement("select", {
+    className: "field",
+    value: orderForm.payment,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      payment: e.target.value
+    })
+  }, /*#__PURE__*/React.createElement("option", null, "Pendiente"), /*#__PURE__*/React.createElement("option", null, "Pagado")) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderRadius: 14,
+      padding: "12px 16px",
+      background: B.offW,
+      fontSize: 12,
+      color: B.muted,
+      display: "flex",
+      alignItems: "center"
+    }
+  }, "Pago lo confirma administraci\xF3n"), /*#__PURE__*/React.createElement("textarea", {
+    className: "field col-span-2 min-h-[80px]",
+    placeholder: "Observaciones",
+    value: orderForm.note,
+    onChange: e => setOrderForm({
+      ...orderForm,
+      note: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2",
+    style: {
+      background: B.offW,
+      border: `1px solid ${B.border}`,
+      borderRadius: 18,
+      padding: 14,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.15em",
+      color: B.muted,
+      marginBottom: 8
+    }
+  }, "Foto de ingreso"), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      borderRadius: 14,
+      padding: "12px 0",
+      fontWeight: 700,
+      fontSize: 14,
+      color: "white",
+      background: `linear-gradient(135deg,${B.ocean},${B.navyM})`,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCF8 Tomar / subir foto de ingreso", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    style: {
+      display: "none"
+    },
+    onChange: e => handlePhoto("photoEntry", e.target.files?.[0])
+  })), orderForm.photoEntry && /*#__PURE__*/React.createElement("img", {
+    src: orderForm.photoEntry,
+    alt: "",
+    style: {
+      width: "100%",
+      height: 176,
+      objectFit: "cover",
+      borderRadius: 14,
+      marginTop: 10,
+      border: `1px solid ${B.border}`
+    }
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "0 20px 20px"
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: addOrder,
+    style: {
+      width: "100%",
+      borderRadius: 18,
+      padding: "16px 0",
+      fontWeight: 700,
+      fontSize: 15,
+      color: "white",
+      background: `linear-gradient(135deg,${B.ocean},${B.navy})`,
+      border: "none",
+      cursor: "pointer"
+    }
+  }, "Guardar lavado")));
+}
+
+// ─── ORDER CARD ───────────────────────────────────────────────────
+function OrderCard({
+  order,
+  service,
+  updateOrder,
+  deleteOrder,
+  showMoney = true,
+  role = "admin"
+}) {
+  const statusTone = s => s === "Terminado" ? "green" : s === "En proceso" ? "blue" : s === "Cancelado" ? "red" : "amber";
+  const payTone = p => p === "Pagado" ? "green" : "amber";
+  const handleOrderPhoto = (field, file) => {
+    if (!file) return;
+    const r2 = new FileReader();
+    r2.onload = () => updateOrder(order.id, {
+      [field]: r2.result
+    });
+    r2.readAsDataURL(file);
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 3,
+      background: `linear-gradient(90deg,${B.ocean},${B.skyL})`
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.15em",
+      color: B.muted2,
+      marginBottom: 2
+    }
+  }, "#", order.id), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 26,
+      letterSpacing: "0.1em",
+      color: B.navy,
+      lineHeight: 1,
+      margin: 0
+    }
+  }, order.plate), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 13,
+      color: B.muted,
+      marginTop: 2
+    }
+  }, order.vehicle, " \xB7 ", order.customer)), showMoney && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.water,
+      borderRadius: 12,
+      padding: "6px 12px"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 22,
+      letterSpacing: "0.05em",
+      color: B.ocean,
+      margin: 0
+    }
+  }, money(service?.price)))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexWrap: "wrap",
+      gap: 6,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement(Badge, {
+    tone: "dark"
+  }, service?.name), /*#__PURE__*/React.createElement(Badge, {
+    tone: statusTone(order.status)
+  }, order.status), role === "admin" && /*#__PURE__*/React.createElement(Badge, {
+    tone: payTone(order.payment)
+  }, order.payment)), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: B.muted,
+      marginBottom: order.note ? 10 : 0
+    }
+  }, order.time || "Sin hora", " \xB7 ", order.worker || "Sin asignar"), order.note && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderRadius: 12,
+      padding: "8px 12px",
+      background: B.offW,
+      fontSize: 13,
+      color: B.muted,
+      marginBottom: 10
+    }
+  }, order.note), (order.photoEntry || order.photoExit) && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 8,
+      marginBottom: 10
+    }
+  }, order.photoEntry && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderRadius: 14,
+      overflow: "hidden",
+      border: `1px solid ${B.border}`
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.1em",
+      color: B.muted,
+      padding: "6px 8px"
+    }
+  }, "Ingreso"), /*#__PURE__*/React.createElement("img", {
+    src: order.photoEntry,
+    alt: "",
+    style: {
+      width: "100%",
+      height: 112,
+      objectFit: "cover"
+    }
+  })), order.photoExit && /*#__PURE__*/React.createElement("div", {
+    style: {
+      borderRadius: 14,
+      overflow: "hidden",
+      border: `1px solid ${B.border}`
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.1em",
+      color: B.muted,
+      padding: "6px 8px"
+    }
+  }, "Salida"), /*#__PURE__*/React.createElement("img", {
+    src: order.photoExit,
+    alt: "",
+    style: {
+      width: "100%",
+      height: 112,
+      objectFit: "cover"
+    }
+  }))), role === "worker" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.offW,
+      border: `1px solid ${B.border}`,
+      borderRadius: 16,
+      padding: 12,
+      marginBottom: 10
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.15em",
+      color: B.muted,
+      marginBottom: 8
+    }
+  }, "Foto de salida"), /*#__PURE__*/React.createElement("label", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      borderRadius: 12,
+      padding: "10px 0",
+      fontWeight: 700,
+      fontSize: 13,
+      color: "white",
+      background: `linear-gradient(135deg,${B.sunset},#C8501A)`,
+      cursor: "pointer"
+    }
+  }, "\uD83D\uDCF8 Tomar / subir foto final", /*#__PURE__*/React.createElement("input", {
+    type: "file",
+    accept: "image/*",
+    capture: "environment",
+    style: {
+      display: "none"
+    },
+    onChange: e => handleOrderPhoto("photoExit", e.target.files?.[0])
+  }))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: role === "admin" ? "1fr 1fr 1fr" : "1fr 1fr",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    className: "action-btn",
+    onClick: () => updateOrder(order.id, {
+      status: "En proceso"
+    })
+  }, "Proceso"), /*#__PURE__*/React.createElement("button", {
+    className: "action-btn primary",
+    onClick: () => updateOrder(order.id, {
+      status: "Terminado",
+      ...(role === "admin" ? {
+        payment: "Pagado"
+      } : {})
+    })
+  }, "Terminar"), role === "admin" && /*#__PURE__*/React.createElement("button", {
+    className: "action-btn danger",
+    onClick: () => deleteOrder(order.id)
+  }, "Borrar"))));
+}
+
+// ─── FINANCIAL DASHBOARD ──────────────────────────────────────────
+function FinancialDashboard({
+  orders,
+  expenses,
+  workers,
+  services,
+  getService
+}) {
+  const last7Days = [...Array(7)].map((_, i) => {
+    const date = new Date();
+    date.setDate(date.getDate() - (6 - i));
+    const iso = date.toISOString().slice(0, 10);
+    const lbl = date.toLocaleDateString("es-CL", {
+      weekday: "short"
+    }).replace(".", "");
+    const dayO = orders.filter(o => o.date === iso && o.payment === "Pagado");
+    const sales = dayO.reduce((s, o) => s + (getService(o.serviceId)?.price || 0), 0);
+    const dayE = expenses.filter(e => e.date === iso).reduce((s, e) => s + Number(e.amount || 0), 0);
+    return {
+      dia: lbl[0].toUpperCase() + lbl.slice(1),
+      ventas: sales,
+      gastos: dayE,
+      utilidad: sales - dayE
+    };
+  });
+  const svcData = services.map(s => ({
+    name: s.name.replace("Lavado ", ""),
+    value: orders.filter(o => Number(o.serviceId) === Number(s.id) && o.payment === "Pagado").length
+  })).filter(i => i.value > 0);
+  const totalSales = orders.filter(o => o.payment === "Pagado").reduce((s, o) => s + (getService(o.serviceId)?.price || 0), 0);
+  const totalExp = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const payroll = workers.reduce((s, w) => s + Number(w.daysWorked || 0) * Number(w.dailySalary || 0) + Number(w.extraExpenses || 0), 0);
+  const netProfit = totalSales - totalExp - payroll;
+  const paid = orders.filter(o => o.payment === "Pagado").length;
+  const avg = paid ? totalSales / paid : 0;
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Resumen financiero",
+    title: "Dashboard"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "12px 20px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: B.muted
+    }
+  }, "Ventas, gastos, sueldos y utilidad acumulada"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(StatCard, {
+    title: "Ventas totales",
+    value: money(totalSales),
+    subtitle: "Servicios pagados",
+    accent: true
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Gastos operaci\xF3n",
+    value: money(totalExp),
+    subtitle: "Insumos registrados"
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Sueldos y gastos",
+    value: money(payroll),
+    subtitle: "Costo de personal"
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Utilidad neta",
+    value: money(netProfit),
+    subtitle: "Ventas \u2212 gastos \u2212 suel.",
+    accent: true
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Ticket promedio",
+    value: money(avg),
+    subtitle: "Promedio por lavado"
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Lavados pagados",
+    value: paid,
+    subtitle: "\xD3rdenes cobradas"
+  })), [{
+    label: "Últimos 7 días",
+    title: "Ventas vs Gastos",
+    chart: "bar"
+  }, {
+    label: "Tendencia",
+    title: "Utilidad Diaria",
+    chart: "line"
+  }, ...(svcData.length > 0 ? [{
+    label: "Mix",
+    title: "Servicios Más Vendidos",
+    chart: "pie"
+  }] : [])].map(({
+    label,
+    title,
+    chart
+  }) => /*#__PURE__*/React.createElement("div", {
+    key: title,
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: label,
+    title: title
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16
+    }
+  }, chart === "bar" && /*#__PURE__*/React.createElement(SimpleBarChart, {
+    data: last7Days,
+    keys: ["ventas", "gastos"],
+    colors: [B.ocean, B.sunset]
+  }), chart === "line" && /*#__PURE__*/React.createElement(SimpleLineChart, {
+    data: last7Days,
+    dataKey: "utilidad",
+    color: B.ocean
+  }), chart === "pie" && /*#__PURE__*/React.createElement(SimplePieChart, {
+    data: svcData,
+    colors: chartColors
+  })))));
+}
+
+// ─── WORKERS PANEL ────────────────────────────────────────────────
+function WorkersPanel({
+  workers,
+  setWorkers,
+  workerForm,
+  setWorkerForm
+}) {
+  const addWorker = () => {
+    if (!workerForm.name || !workerForm.dailySalary) return;
+    setWorkers([{
+      id: Date.now(),
+      name: workerForm.name,
+      role: workerForm.role || "Trabajador",
+      startDate: workerForm.startDate || todayISO,
+      daysWorked: Number(workerForm.daysWorked || 0),
+      dailySalary: Number(workerForm.dailySalary || 0),
+      extraExpenses: Number(workerForm.extraExpenses || 0),
+      notes: workerForm.notes || ""
+    }, ...workers]);
+    setWorkerForm({
+      name: "",
+      role: "",
+      startDate: "",
+      daysWorked: "",
+      dailySalary: "",
+      extraExpenses: "",
+      notes: ""
+    });
+  };
+  const updateWorker = (id, patch) => setWorkers(workers.map(w => w.id === id ? {
+    ...w,
+    ...patch
+  } : w));
+  const deleteWorker = id => setWorkers(workers.filter(w => w.id !== id));
+  const totals = workers.reduce((a, w) => {
+    const s = Number(w.daysWorked || 0) * Number(w.dailySalary || 0),
+      x = Number(w.extraExpenses || 0);
+    return {
+      salary: a.salary + s,
+      extras: a.extras + x,
+      total: a.total + s + x
+    };
+  }, {
+    salary: 0,
+    extras: 0,
+    total: 0
+  });
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Recursos humanos",
+    title: "Personal"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 20px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: B.muted
+    }
+  }, "D\xEDas trabajados, sueldo diario y anticipos."))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement(StatCard, {
+    title: "Sueldos",
+    value: money(totals.salary),
+    subtitle: "D\xEDas \xD7 sueldo"
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Extras",
+    value: money(totals.extras),
+    subtitle: "Anticipos"
+  }), /*#__PURE__*/React.createElement(StatCard, {
+    title: "Total",
+    value: money(totals.total),
+    subtitle: "Personal",
+    accent: true
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: `linear-gradient(135deg,${B.navy},${B.navyM})`,
+      padding: "12px 20px 10px"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.2em",
+      color: B.skyL,
+      margin: 0
+    }
+  }, "Agregar")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 20
+    },
+    className: "grid grid-cols-2 gap-3"
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field col-span-2",
+    placeholder: "Nombre trabajador",
+    value: workerForm.name,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      name: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field col-span-2",
+    placeholder: "Cargo / funci\xF3n",
+    value: workerForm.role,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      role: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("div", {
+    className: "col-span-2"
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.12em",
+      color: B.muted,
+      marginBottom: 6
+    }
+  }, "Fecha de inicio"), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    type: "date",
+    value: workerForm.startDate,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      startDate: e.target.value
+    }),
+    style: {
+      width: "100%"
+    }
+  })), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    type: "number",
+    placeholder: "D\xEDas trabajados",
+    value: workerForm.daysWorked,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      daysWorked: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field",
+    type: "number",
+    placeholder: "Sueldo diario",
+    value: workerForm.dailySalary,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      dailySalary: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field col-span-2",
+    type: "number",
+    placeholder: "Gastos",
+    value: workerForm.extraExpenses,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      extraExpenses: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("textarea", {
+    className: "field col-span-2 min-h-[72px]",
+    placeholder: "Observaci\xF3n...",
+    value: workerForm.notes,
+    onChange: e => setWorkerForm({
+      ...workerForm,
+      notes: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addWorker,
+    className: "col-span-2",
+    style: {
+      borderRadius: 18,
+      padding: "14px 0",
+      fontWeight: 700,
+      fontSize: 14,
+      color: "white",
+      background: `linear-gradient(135deg,${B.ocean},${B.navy})`,
+      border: "none",
+      cursor: "pointer"
+    }
+  }, "Guardar trabajador"))), workers.map(w => {
+    const sal = Number(w.daysWorked || 0) * Number(w.dailySalary || 0),
+      ext = Number(w.extraExpenses || 0),
+      tot = sal + ext;
+    return /*#__PURE__*/React.createElement("div", {
+      key: w.id,
+      style: {
+        background: B.white,
+        border: `1px solid ${B.border}`,
+        borderRadius: 28,
+        overflow: "hidden"
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: `linear-gradient(135deg,${B.navy},${B.navyM})`,
+        padding: "14px 20px",
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center"
+      }
+    }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontFamily: "'Bebas Neue',sans-serif",
+        fontSize: 22,
+        letterSpacing: "0.06em",
+        color: "white",
+        margin: 0
+      }
+    }, w.name), /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 11,
+        color: "rgba(255,255,255,0.5)",
+        margin: 0
+      }
+    }, w.role)), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: "rgba(255,255,255,0.12)",
+        borderRadius: 12,
+        padding: "6px 12px"
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontFamily: "'Bebas Neue',sans-serif",
+        fontSize: 20,
+        color: "white",
+        letterSpacing: "0.05em",
+        margin: 0
+      }
+    }, money(tot)))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        padding: 16
+      }
+    }, /*#__PURE__*/React.createElement("div", {
+      style: {
+        display: "grid",
+        gridTemplateColumns: "1fr 1fr 1fr",
+        gap: 8,
+        marginBottom: 10
+      }
+    }, [["Días", w.daysWorked, "daysWorked"], ["Sueldo/día", w.dailySalary, "dailySalary"], ["Gastos", w.extraExpenses, "extraExpenses"]].map(([lbl, val, key]) => /*#__PURE__*/React.createElement("div", {
+      key: key,
+      style: {
+        background: B.offW,
+        border: `1px solid ${B.border}`,
+        borderRadius: 14,
+        padding: 10
+      }
+    }, /*#__PURE__*/React.createElement("p", {
+      style: {
+        fontSize: 9,
+        fontWeight: 700,
+        textTransform: "uppercase",
+        letterSpacing: "0.1em",
+        color: B.muted,
+        marginBottom: 4
+      }
+    }, lbl), /*#__PURE__*/React.createElement("input", {
+      className: "mini-input",
+      type: "number",
+      value: val,
+      onChange: e => updateWorker(w.id, {
+        [key]: Number(e.target.value)
+      })
+    })))), /*#__PURE__*/React.createElement("div", {
+      style: {
+        background: B.offW,
+        borderRadius: 12,
+        padding: 10,
+        fontSize: 12,
+        color: B.muted,
+        marginBottom: 10
+      }
+    }, w.startDate && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "0 0 4px",
+        paddingBottom: 4,
+        borderBottom: `1px solid ${B.border}`
+      }
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: B.navy
+      }
+    }, "Inicio:"), " ", w.startDate), /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "0 0 2px"
+      }
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: B.navy
+      }
+    }, "Sueldo:"), " ", money(sal)), /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "0 0 2px"
+      }
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: B.navy
+      }
+    }, "Gastos/anticipos:"), " ", money(ext)), /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: 0
+      }
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: B.navy
+      }
+    }, "Total:"), " ", money(tot)), w.notes && /*#__PURE__*/React.createElement("p", {
+      style: {
+        margin: "4px 0 0"
+      }
+    }, /*#__PURE__*/React.createElement("strong", {
+      style: {
+        color: B.navy
+      }
+    }, "Nota:"), " ", w.notes)), /*#__PURE__*/React.createElement("button", {
+      className: "action-btn danger",
+      style: {
+        width: "100%"
+      },
+      onClick: () => deleteWorker(w.id)
+    }, "Eliminar trabajador")));
+  }));
+}
+
+// ─── BOTTOM NAV ───────────────────────────────────────────────────
+function BottomNav({
+  navItems,
+  tab,
+  setTab
+}) {
+  return /*#__PURE__*/React.createElement("nav", {
+    style: {
+      position: "fixed",
+      bottom: 0,
+      left: "50%",
+      transform: "translateX(-50%)",
+      width: "100%",
+      maxWidth: 448,
+      padding: "0 12px 12px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "white",
+      border: `1px solid ${B.border}`,
+      borderRadius: 22,
+      padding: 8,
+      boxShadow: "0 4px 20px rgba(21,101,192,0.12)"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: `repeat(${navItems.length},1fr)`,
+      gap: 4
+    }
+  }, navItems.map(item => /*#__PURE__*/React.createElement("button", {
+    key: item.id,
+    onClick: () => setTab(item.id),
+    style: {
+      borderRadius: 14,
+      padding: "8px 4px",
+      border: "none",
+      cursor: "pointer",
+      transition: "all 0.15s",
+      background: tab === item.id ? `linear-gradient(135deg,${B.ocean},${B.navy})` : "transparent",
+      color: tab === item.id ? "white" : B.muted
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 16,
+      lineHeight: 1
+    }
+  }, item.icon), /*#__PURE__*/React.createElement("div", {
+    style: {
+      fontSize: 9,
+      fontWeight: 700,
+      marginTop: 2,
+      overflow: "hidden",
+      textOverflow: "ellipsis",
+      whiteSpace: "nowrap"
+    }
+  }, item.label))))));
+}
+
+// ─── ADMIN APP ────────────────────────────────────────────────────
+
+// EXPORT TO EXCEL
+function exportToExcel(orders, expenses, workers, services, getService) {
+  const wb = XLSX.utils.book_new();
+  const date = new Date().toISOString().slice(0, 10);
+  const paidOrders = orders.filter(o => o.payment === "Pagado");
+  const totalSales = paidOrders.reduce((s, o) => s + (getService(o.serviceId)?.price || 0), 0);
+  const totalExp = expenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+  const payroll = workers.reduce((s, w) => s + Number(w.daysWorked || 0) * Number(w.dailySalary || 0) + Number(w.extraExpenses || 0), 0);
+  const netProfit = totalSales - totalExp - payroll;
+  const avgTicket = paidOrders.length ? Math.round(totalSales / paidOrders.length) : 0;
+
+  // Hoja 1: Resumen
+  const summaryRows = [["Concepto", "Monto (CLP)"], ["Ventas totales (pagadas)", totalSales], ["Gastos operacionales", totalExp], ["Costo personal (sueldos + anticipos)", payroll], ["Utilidad neta", netProfit], [""], ["Lavados totales", orders.length], ["Lavados pagados", paidOrders.length], ["Ticket promedio", avgTicket], [""], ["Exportado el", date]];
+  const wsResumen = XLSX.utils.aoa_to_sheet(summaryRows);
+  wsResumen["!cols"] = [{
+    wch: 38
+  }, {
+    wch: 18
+  }];
+  XLSX.utils.book_append_sheet(wb, wsResumen, "Resumen");
+
+  // Hoja 2: Ordenes
+  const ordersData = [["ID", "Fecha", "Hora", "Patente", "Vehiculo", "Cliente", "Telefono", "Servicio", "Precio", "Estado", "Pago", "Operario", "Observacion"], ...orders.map(o => [o.id, o.date, o.time, o.plate, o.vehicle, o.customer, o.phone, getService(o.serviceId)?.name || "", getService(o.serviceId)?.price || 0, o.status, o.payment, o.worker, o.note])];
+  const wsOrders = XLSX.utils.aoa_to_sheet(ordersData);
+  wsOrders["!cols"] = [8, 10, 6, 10, 10, 22, 14, 18, 10, 12, 10, 14, 24].map(w => ({
+    wch: w
+  }));
+  XLSX.utils.book_append_sheet(wb, wsOrders, "Ordenes");
+
+  // Hoja 3: Gastos
+  const expensesData = [["ID", "Fecha", "Concepto", "Monto (CLP)"], ...expenses.map(e => [e.id, e.date, e.concept, Number(e.amount || 0)]), ["", "", "TOTAL", expenses.reduce((s, e) => s + Number(e.amount || 0), 0)]];
+  const wsExpenses = XLSX.utils.aoa_to_sheet(expensesData);
+  wsExpenses["!cols"] = [{
+    wch: 6
+  }, {
+    wch: 12
+  }, {
+    wch: 28
+  }, {
+    wch: 14
+  }];
+  XLSX.utils.book_append_sheet(wb, wsExpenses, "Gastos");
+
+  // Hoja 4: Personal
+  const workersData = [["Nombre", "Cargo", "Fecha inicio", "Dias trab.", "Sueldo diario", "Total sueldo", "Gastos/anticipos", "Total trabajador", "Notas"], ...workers.map(w => {
+    const sal = Number(w.daysWorked || 0) * Number(w.dailySalary || 0);
+    const ext = Number(w.extraExpenses || 0);
+    return [w.name, w.role, w.startDate || "", w.daysWorked, w.dailySalary, sal, ext, sal + ext, w.notes];
+  }), ["", "", "", "", "", "TOTAL PERSONAL", workers.reduce((s, w) => s + Number(w.daysWorked || 0) * Number(w.dailySalary || 0) + Number(w.extraExpenses || 0), 0), ""]];
+  const wsWorkers = XLSX.utils.aoa_to_sheet(workersData);
+  wsWorkers["!cols"] = [18, 22, 12, 10, 14, 14, 16, 16, 24].map(w => ({
+    wch: w
+  }));
+  XLSX.utils.book_append_sheet(wb, wsWorkers, "Personal");
+  XLSX.writeFile(wb, `CostaCarwash_${date}.xlsx`);
+}
+function AdminApp({
+  common
+}) {
+  const {
+    services,
+    orders,
+    expenses,
+    workers,
+    setWorkers,
+    workerForm,
+    setWorkerForm,
+    orderForm,
+    setOrderForm,
+    addOrder,
+    updateOrder,
+    deleteOrder,
+    expenseForm,
+    setExpenseForm,
+    addExpense,
+    getService,
+    today,
+    setRole
+  } = common;
+  const [tab, setTab] = useState("dashboard");
+  const [search, setSearch] = useState("");
+  const todayO = orders.filter(o => o.date === today);
+  const totals = useMemo(() => {
+    const paid = todayO.filter(o => o.payment === "Pagado");
+    const sales = paid.reduce((s, o) => s + (getService(o.serviceId)?.price || 0), 0);
+    const todayExp = expenses.filter(e => e.date === today).reduce((s, e) => s + Number(e.amount || 0), 0);
+    return {
+      sales,
+      profit: sales - todayExp
+    };
+  }, [orders, expenses]);
+  const filtered = orders.filter(o => {
+    const t = search.toLowerCase();
+    return o.customer.toLowerCase().includes(t) || o.plate.toLowerCase().includes(t) || o.vehicle.toLowerCase().includes(t) || o.status.toLowerCase().includes(t);
+  });
+  const navItems = [{
+    id: "dashboard",
+    label: "Finanzas",
+    icon: "📈"
+  }, {
+    id: "nueva",
+    label: "Nuevo",
+    icon: "➕"
+  }, {
+    id: "ordenes",
+    label: "Órdenes",
+    icon: "🚗"
+  }, {
+    id: "gastos",
+    label: "Gastos",
+    icon: "💸"
+  }, {
+    id: "personal",
+    label: "Personal",
+    icon: "👷"
+  }, {
+    id: "servicios",
+    label: "Servicios",
+    icon: "🧽"
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 448,
+      margin: "0 auto",
+      minHeight: "100vh",
+      background: B.water,
+      position: "relative",
+      paddingBottom: 112
+    }
+  }, /*#__PURE__*/React.createElement("header", {
+    style: {
+      background: `linear-gradient(160deg,${B.navy} 0%,${B.navyM} 55%,${B.ocean} 100%)`,
+      borderRadius: "0 0 36px 36px",
+      padding: "40px 20px 24px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 20
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 24,
+      height: 24,
+      borderRadius: "50%",
+      background: "white",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 12
+    }
+  }, "\uD83D\uDE98"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.25em",
+      color: B.skyL,
+      margin: 0
+    }
+  }, "Costa Carwash \xB7 Admin")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 36,
+      color: "white",
+      letterSpacing: "0.06em",
+      lineHeight: 1,
+      margin: 0
+    }
+  }, "Panel Financiero")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => exportToExcel(orders, expenses, workers, services, getService),
+    style: {
+      background: "rgba(255,255,255,0.12)",
+      border: "1px solid rgba(255,255,255,0.2)",
+      borderRadius: 12,
+      padding: "6px 12px",
+      fontSize: 11,
+      fontWeight: 700,
+      color: "white",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      gap: 4
+    }
+  }, /*#__PURE__*/React.createElement("span", null, "\uD83D\uDCCA"), " Excel"), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRole(null),
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      borderRadius: 12,
+      padding: "6px 12px",
+      fontSize: 11,
+      fontWeight: 700,
+      color: "rgba(255,255,255,0.6)",
+      cursor: "pointer"
+    }
+  }, "Salir"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 12
+    }
+  }, [["Ventas pagadas hoy", money(totals.sales)], ["Utilidad operativa", money(totals.profit)]].map(([lbl, val]) => /*#__PURE__*/React.createElement("div", {
+    key: lbl,
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 18,
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 600,
+      color: "rgba(255,255,255,0.5)",
+      marginBottom: 4
+    }
+  }, lbl), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 26,
+      color: "white",
+      letterSpacing: "0.05em",
+      margin: 0
+    }
+  }, val))))), /*#__PURE__*/React.createElement("main", {
+    style: {
+      padding: "20px 16px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, tab === "dashboard" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("button", {
+    onClick: () => exportToExcel(orders, expenses, workers, services, getService),
+    style: {
+      width: "100%",
+      borderRadius: 20,
+      padding: "14px 20px",
+      fontWeight: 700,
+      fontSize: 14,
+      color: "white",
+      background: `linear-gradient(135deg,#1B5E20,#2E7D32)`,
+      border: "none",
+      cursor: "pointer",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8
+    }
+  }, /*#__PURE__*/React.createElement("span", {
+    style: {
+      fontSize: 18
+    }
+  }, "\uD83D\uDCCA"), " Exportar todo a Excel (Resumen \xB7 \xD3rdenes \xB7 Gastos \xB7 Personal)"), /*#__PURE__*/React.createElement(FinancialDashboard, {
+    orders: orders,
+    expenses: expenses,
+    workers: workers,
+    services: services,
+    getService: getService
+  })), tab === "nueva" && /*#__PURE__*/React.createElement(OrderForm, {
+    services: services,
+    orderForm: orderForm,
+    setOrderForm: setOrderForm,
+    addOrder: addOrder,
+    mode: "admin"
+  }), tab === "ordenes" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Historial",
+    title: "\xD3rdenes"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field w-full",
+    placeholder: "Buscar patente, cliente o estado",
+    value: search,
+    onChange: e => setSearch(e.target.value)
+  }))), filtered.map(o => /*#__PURE__*/React.createElement(OrderCard, {
+    key: o.id,
+    order: o,
+    service: getService(o.serviceId),
+    updateOrder: updateOrder,
+    deleteOrder: deleteOrder,
+    role: "admin"
+  }))), tab === "gastos" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Registro",
+    title: "Registrar Gasto"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16,
+      display: "flex",
+      flexDirection: "column",
+      gap: 10
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field w-full",
+    placeholder: "Concepto",
+    value: expenseForm.concept,
+    onChange: e => setExpenseForm({
+      ...expenseForm,
+      concept: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("input", {
+    className: "field w-full",
+    type: "number",
+    placeholder: "Monto",
+    value: expenseForm.amount,
+    onChange: e => setExpenseForm({
+      ...expenseForm,
+      amount: e.target.value
+    })
+  }), /*#__PURE__*/React.createElement("button", {
+    onClick: addExpense,
+    style: {
+      borderRadius: 16,
+      padding: "14px 0",
+      fontWeight: 700,
+      fontSize: 14,
+      color: "white",
+      background: `linear-gradient(135deg,${B.ocean},${B.navy})`,
+      border: "none",
+      cursor: "pointer"
+    }
+  }, "Guardar gasto"))), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "",
+    title: "\xDAltimos Gastos"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "0 16px 16px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 8,
+      marginTop: 12
+    }
+  }, expenses.map(e => /*#__PURE__*/React.createElement("div", {
+    key: e.id,
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center",
+      background: B.offW,
+      border: `1px solid ${B.border}`,
+      borderRadius: 14,
+      padding: "10px 14px"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontWeight: 700,
+      fontSize: 14,
+      color: B.navy,
+      margin: 0
+    }
+  }, e.concept), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: B.muted2,
+      margin: 0
+    }
+  }, e.date)), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 22,
+      color: B.sunset,
+      letterSpacing: "0.05em",
+      margin: 0
+    }
+  }, money(e.amount))))))), tab === "personal" && /*#__PURE__*/React.createElement(WorkersPanel, {
+    workers: workers,
+    setWorkers: setWorkers,
+    workerForm: workerForm,
+    setWorkerForm: setWorkerForm
+  }), tab === "servicios" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Cat\xE1logo",
+    title: "Servicios y Precios"
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "10px 20px 16px"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: B.muted
+    }
+  }, "Usados para calcular ventas y utilidad."))), services.map((s, i) => /*#__PURE__*/React.createElement("div", {
+    key: s.id,
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 22,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      height: 3,
+      background: `linear-gradient(90deg,${chartColors[i % chartColors.length]},${B.skyL})`
+    }
+  }), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: "14px 18px",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "center"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontWeight: 700,
+      color: B.navy,
+      margin: 0
+    }
+  }, s.name), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 12,
+      color: B.muted,
+      margin: 0
+    }
+  }, "Duraci\xF3n aprox: ", s.duration)), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 24,
+      color: B.ocean,
+      letterSpacing: "0.05em",
+      margin: 0
+    }
+  }, money(s.price))))))), /*#__PURE__*/React.createElement(BottomNav, {
+    navItems: navItems,
+    tab: tab,
+    setTab: setTab
+  }));
+}
+
+// ─── WORKER APP ───────────────────────────────────────────────────
+function WorkerApp({
+  common
+}) {
+  const {
+    services,
+    orders,
+    workers,
+    orderForm,
+    setOrderForm,
+    addOrder,
+    updateOrder,
+    deleteOrder,
+    getService,
+    today,
+    setRole
+  } = common;
+  const [tab, setTab] = useState("pendientes");
+  const [workerName, setWorkerName] = useState("Operario 1");
+  const [search, setSearch] = useState("");
+  const workerProfile = workers.find(w => w.name.trim().toLowerCase() === workerName.trim().toLowerCase());
+  const visibleOrders = orders.filter(o => o.date === today && o.status !== "Terminado" && o.status !== "Cancelado").filter(o => {
+    const t = search.toLowerCase();
+    return o.plate.toLowerCase().includes(t) || o.customer.toLowerCase().includes(t);
+  });
+  const finishedToday = orders.filter(o => o.date === today && o.status === "Terminado").length;
+  const inProcess = orders.filter(o => o.date === today && o.status === "En proceso").length;
+  const workerOrderForm = {
+    ...orderForm,
+    worker: orderForm.worker || workerName,
+    payment: "Pendiente"
+  };
+  const navItems = [{
+    id: "pendientes",
+    label: "Trabajos",
+    icon: "🚗"
+  }, {
+    id: "nuevo",
+    label: "Nuevo",
+    icon: "➕"
+  }, {
+    id: "terminados",
+    label: "Listos",
+    icon: "✅"
+  }, {
+    id: "misdias",
+    label: "Días",
+    icon: "📅"
+  }];
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      maxWidth: 448,
+      margin: "0 auto",
+      minHeight: "100vh",
+      background: B.water,
+      position: "relative",
+      paddingBottom: 112
+    }
+  }, /*#__PURE__*/React.createElement("header", {
+    style: {
+      background: `linear-gradient(160deg,${B.navy} 0%,#1A4A7A 60%,${B.sunset} 160%)`,
+      borderRadius: "0 0 36px 36px",
+      padding: "40px 20px 24px"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-start",
+      marginBottom: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      alignItems: "center",
+      gap: 8,
+      marginBottom: 4
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      width: 24,
+      height: 24,
+      borderRadius: "50%",
+      background: "white",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontSize: 12
+    }
+  }, "\uD83D\uDE98"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.25em",
+      color: B.skyL,
+      margin: 0
+    }
+  }, "Costa Carwash \xB7 Operativo")), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 36,
+      color: "white",
+      letterSpacing: "0.06em",
+      lineHeight: 1,
+      margin: 0
+    }
+  }, "Panel Operativo")), /*#__PURE__*/React.createElement("button", {
+    onClick: () => setRole(null),
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      borderRadius: 12,
+      padding: "6px 12px",
+      fontSize: 11,
+      fontWeight: 700,
+      color: "rgba(255,255,255,0.6)",
+      cursor: "pointer"
+    }
+  }, "Salir")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.15)",
+      borderRadius: 18,
+      padding: 12,
+      marginBottom: 12
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 600,
+      color: "rgba(255,255,255,0.45)",
+      marginBottom: 4
+    }
+  }, "Nombre del trabajador"), /*#__PURE__*/React.createElement("input", {
+    value: workerName,
+    onChange: e => setWorkerName(e.target.value),
+    style: {
+      width: "100%",
+      background: "rgba(255,255,255,0.15)",
+      border: "1px solid rgba(255,255,255,0.2)",
+      borderRadius: 12,
+      padding: "8px 12px",
+      fontWeight: 700,
+      fontSize: 14,
+      color: "white",
+      outline: "none"
+    }
+  })), /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr 1fr",
+      gap: 10
+    }
+  }, [["Mis días", workerProfile?.daysWorked || 0], ["En proceso", inProcess], ["Listos hoy", finishedToday]].map(([lbl, val]) => /*#__PURE__*/React.createElement("div", {
+    key: lbl,
+    style: {
+      background: "rgba(255,255,255,0.1)",
+      border: "1px solid rgba(255,255,255,0.12)",
+      borderRadius: 16,
+      padding: 10,
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 9,
+      fontWeight: 600,
+      color: "rgba(255,255,255,0.45)",
+      marginBottom: 2
+    }
+  }, lbl), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 26,
+      color: "white",
+      letterSpacing: "0.05em",
+      margin: 0
+    }
+  }, val))))), /*#__PURE__*/React.createElement("main", {
+    style: {
+      padding: "20px 16px",
+      display: "flex",
+      flexDirection: "column",
+      gap: 16
+    }
+  }, tab === "pendientes" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: `linear-gradient(135deg,${B.navy},${B.navyM})`,
+      padding: "16px 20px 14px",
+      display: "flex",
+      justifyContent: "space-between",
+      alignItems: "flex-end"
+    }
+  }, /*#__PURE__*/React.createElement("div", null, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.25em",
+      color: B.skyL,
+      margin: 0
+    }
+  }, "Activos"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 30,
+      color: "white",
+      letterSpacing: "0.06em",
+      margin: 0
+    }
+  }, "Trabajos")), /*#__PURE__*/React.createElement(Badge, {
+    tone: "green"
+  }, "En turno")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("input", {
+    className: "field w-full",
+    placeholder: "Buscar patente o cliente",
+    value: search,
+    onChange: e => setSearch(e.target.value)
+  }))), visibleOrders.length === 0 && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 24,
+      padding: 40,
+      textAlign: "center",
+      color: B.muted
+    }
+  }, "No hay trabajos pendientes ahora."), visibleOrders.map(o => /*#__PURE__*/React.createElement(OrderCard, {
+    key: o.id,
+    order: o,
+    service: getService(o.serviceId),
+    updateOrder: (id, patch) => updateOrder(id, {
+      ...patch,
+      worker: workerName
+    }),
+    deleteOrder: deleteOrder,
+    role: "worker",
+    showMoney: false
+  }))), tab === "nuevo" && /*#__PURE__*/React.createElement(OrderForm, {
+    services: services,
+    orderForm: workerOrderForm,
+    setOrderForm: next => setOrderForm({
+      ...next,
+      worker: next.worker || workerName,
+      payment: "Pendiente"
+    }),
+    addOrder: addOrder,
+    mode: "worker"
+  }), tab === "terminados" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Completados",
+    title: "Terminados Hoy"
+  })), orders.filter(o => o.date === today && o.status === "Terminado").map(o => /*#__PURE__*/React.createElement(OrderCard, {
+    key: o.id,
+    order: o,
+    service: getService(o.serviceId),
+    updateOrder: updateOrder,
+    deleteOrder: deleteOrder,
+    role: "worker",
+    showMoney: false
+  }))), tab === "misdias" && /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "flex",
+      flexDirection: "column",
+      gap: 12
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement(SectionHeader, {
+    label: "Registro",
+    title: "Mis D\xEDas"
+  })), workerProfile ? /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 28,
+      overflow: "hidden"
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: `linear-gradient(160deg,${B.navy},#1A4A7A 60%,${B.sunset} 160%)`,
+      padding: "28px 20px",
+      textAlign: "center"
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.25em",
+      color: "rgba(255,255,255,0.4)",
+      margin: 0
+    }
+  }, "D\xEDas registrados"), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontFamily: "'Bebas Neue',sans-serif",
+      fontSize: 80,
+      color: "white",
+      letterSpacing: "0.05em",
+      lineHeight: 1,
+      margin: "4px 0"
+    }
+  }, workerProfile.daysWorked), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 11,
+      color: "rgba(255,255,255,0.35)",
+      margin: 0
+    }
+  }, "Per\xEDodo actual")), /*#__PURE__*/React.createElement("div", {
+    style: {
+      padding: 16
+    }
+  }, /*#__PURE__*/React.createElement("div", {
+    style: {
+      display: "grid",
+      gridTemplateColumns: "1fr 1fr",
+      gap: 10,
+      marginBottom: 10
+    }
+  }, [["Nombre", workerProfile.name], ["Función", workerProfile.role]].map(([lbl, val]) => /*#__PURE__*/React.createElement("div", {
+    key: lbl,
+    style: {
+      background: B.offW,
+      border: `1px solid ${B.border}`,
+      borderRadius: 14,
+      padding: 12
+    }
+  }, /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontSize: 10,
+      fontWeight: 700,
+      textTransform: "uppercase",
+      letterSpacing: "0.1em",
+      color: B.muted,
+      margin: "0 0 2px"
+    }
+  }, lbl), /*#__PURE__*/React.createElement("p", {
+    style: {
+      fontWeight: 700,
+      fontSize: 14,
+      color: B.navy,
+      margin: 0
+    }
+  }, val)))), workerProfile.notes && /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.offW,
+      borderRadius: 12,
+      padding: "8px 12px",
+      fontSize: 12,
+      color: B.muted
+    }
+  }, /*#__PURE__*/React.createElement("strong", {
+    style: {
+      color: B.navy
+    }
+  }, "Observaci\xF3n:"), " ", workerProfile.notes))) : /*#__PURE__*/React.createElement("div", {
+    style: {
+      background: B.white,
+      border: `1px solid ${B.border}`,
+      borderRadius: 24,
+      padding: 40,
+      textAlign: "center",
+      color: B.muted
+    }
+  }, "Tu nombre no est\xE1 registrado. Verifica que sea id\xE9ntico al del admin."))), /*#__PURE__*/React.createElement(BottomNav, {
+    navItems: navItems,
+    tab: tab,
+    setTab: setTab
+  }));
+}
+
+// ─── APP ──────────────────────────────────────────────────────────
+function App() {
+  const [role, setRole] = useState(null);
+  const [services] = useState(initialServices);
+  const [orders, setOrders] = useState(initialOrders);
+  const [expenses, setExpenses] = useState(initialExpenses);
+  const [workers, setWorkers] = useState(initialWorkers);
+  const today = new Date().toISOString().slice(0, 10);
+  const [orderForm, setOrderForm] = useState({
+    customer: "",
+    phone: "",
+    plate: "",
+    vehicle: "Auto",
+    serviceId: 2,
+    status: "Pendiente",
+    payment: "Pendiente",
+    worker: "",
+    date: today,
+    time: "",
+    note: "",
+    photoEntry: null,
+    photoExit: null
+  });
+  const [expenseForm, setExpenseForm] = useState({
+    concept: "",
+    amount: "",
+    date: today
+  });
+  const [workerForm, setWorkerForm] = useState({
+    name: "",
+    role: "",
+    daysWorked: "",
+    dailySalary: "",
+    extraExpenses: "",
+    notes: ""
+  });
+  const getService = id => services.find(s => Number(s.id) === Number(id));
+  const addOrder = () => {
+    if (!orderForm.plate || !orderForm.serviceId) return;
+    setOrders([{
+      ...orderForm,
+      id: Date.now(),
+      customer: orderForm.customer || "Cliente mostrador",
+      time: orderForm.time || new Date().toLocaleTimeString("es-CL", {
+        hour: "2-digit",
+        minute: "2-digit"
+      })
+    }, ...orders]);
+    setOrderForm({
+      customer: "",
+      phone: "",
+      plate: "",
+      vehicle: "Auto",
+      serviceId: 2,
+      status: "Pendiente",
+      payment: "Pendiente",
+      worker: "",
+      date: today,
+      time: "",
+      note: ""
+    });
+  };
+  const updateOrder = (id, patch) => setOrders(orders.map(o => o.id === id ? {
+    ...o,
+    ...patch
+  } : o));
+  const deleteOrder = id => setOrders(orders.filter(o => o.id !== id));
+  const addExpense = () => {
+    if (!expenseForm.concept || !expenseForm.amount) return;
+    setExpenses([{
+      id: Date.now(),
+      ...expenseForm,
+      amount: Number(expenseForm.amount),
+      date: expenseForm.date || today
+    }, ...expenses]);
+    setExpenseForm({
+      concept: "",
+      amount: "",
+      date: today
+    });
+  };
+  const common = {
+    services,
+    orders,
+    expenses,
+    workers,
+    setWorkers,
+    workerForm,
+    setWorkerForm,
+    orderForm,
+    setOrderForm,
+    addOrder,
+    updateOrder,
+    deleteOrder,
+    expenseForm,
+    setExpenseForm,
+    addExpense,
+    getService,
+    today,
+    setRole
+  };
+  return /*#__PURE__*/React.createElement("div", {
+    style: {
+      minHeight: "100vh",
+      background: B.navy
+    }
+  }, !role && /*#__PURE__*/React.createElement(LoginScreen, {
+    setRole: setRole
+  }), role === "admin" && /*#__PURE__*/React.createElement(AdminApp, {
+    common: common
+  }), role === "worker" && /*#__PURE__*/React.createElement(WorkerApp, {
+    common: common
+  }), /*#__PURE__*/React.createElement("style", null, `
+        @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,700;9..40,900&display=swap');
+        * { font-family:'DM Sans',sans-serif; box-sizing:border-box; }
+        .field { width:100%; border-radius:14px; border:1px solid ${B.border}; background:white; padding:11px 14px; outline:none; font-size:14px; color:${B.ink}; font-family:'DM Sans',sans-serif; transition:border-color 0.15s,box-shadow 0.15s; }
+        .field:focus { border-color:${B.ocean}; box-shadow:0 0 0 3px ${B.waterM}; }
+        .field::placeholder { color:${B.muted2}; }
+        .plate-field { font-family:'Bebas Neue',sans-serif; font-size:18px; letter-spacing:0.12em; }
+        .mini-input { width:100%; background:transparent; outline:none; font-weight:900; font-size:14px; color:${B.navy}; border:none; }
+        .action-btn { border-radius:14px; background:${B.offW}; border:1px solid ${B.border}; padding:10px 6px; font-size:12px; font-weight:800; color:${B.navy}; cursor:pointer; transition:all 0.1s; font-family:'DM Sans',sans-serif; }
+        .action-btn:hover { background:${B.waterM}; }
+        .action-btn.primary { background:${B.ocean}; color:white; border-color:${B.ocean}; }
+        .action-btn.primary:hover { opacity:0.88; }
+        .action-btn.danger { background:#FEF2F2; color:#B91C1C; border-color:#FECACA; }
+        .action-btn.danger:hover { background:#FEE2E2; }
+        select.field { cursor:pointer; }
+        textarea.field { resize:vertical; }
+      `));
+}
+ReactDOM.createRoot(document.getElementById("root")).render(/*#__PURE__*/React.createElement(App, null));
+  </script>
+
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", function() {
+        navigator.serviceWorker.register("./sw.js");
+      });
+    }
+  </script>
+</body>
+</html>
